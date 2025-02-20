@@ -1,0 +1,298 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Reto 3 - Web estática en EC2 con ELB'
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for VPC
+  
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for Public Subnet 1
+  
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for Public Subnet 2
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  AmiId:
+    Type: String
+    Default: ami-09245d5773578a1d6
+    Description: AMI ID for EC2 instances
+
+Resources:
+  # VPC y componentes de red
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: Reto3-VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Reto3-IGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Reto3-PublicSubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Reto3-PublicSubnet2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Reto3-PublicRT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Grupos de seguridad
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: Reto3-ALB
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 80
+      Protocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Targets:
+        - Id: !Ref EC2Instance1
+          Port: 80
+        - Id: !Ref EC2Instance2
+          Port: 80
+        - Id: !Ref EC2Instance3
+          Port: 80
+      Tags:
+        - Key: Name
+          Value: Reto3-TG
+
+  # EC2 Instances
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: "LabInstanceProfile"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd aws-cli
+          
+          # Preparar directorio
+          cd /var/www/html
+          rm -rf *
+          
+          # Copiar archivos del bucket de la Tarea 1
+          aws s3 cp s3://cloud-challenge-team-20250220/index.html .
+          aws s3 cp s3://cloud-challenge-team-20250220/styles.css .
+          aws s3 cp s3://cloud-challenge-team-20250220/script.js .
+          aws s3 sync s3://cloud-challenge-team-20250220/assets/ assets/
+          
+          # Añadir identificación de la instancia
+          sed -i '/<div class="header-description">/a \            <p style="text-align: center; margin-top: 20px; color: var(--primary-color); font-size: 1.2rem;"><strong>Servidor actual:</strong> '"$(hostname)"'</p>' index.html
+          
+          # Permisos
+          chown -R apache:apache .
+          chmod -R 755 .
+          
+          # Iniciar Apache
+          systemctl start httpd
+          systemctl enable httpd
+      Tags:
+        - Key: Name
+          Value: Reto3-EC2-1
+
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: "LabInstanceProfile"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd aws-cli
+          
+          # Preparar directorio
+          cd /var/www/html
+          rm -rf *
+          
+          # Copiar archivos del bucket de la Tarea 1
+          aws s3 cp s3://cloud-challenge-team-20250220/index.html .
+          aws s3 cp s3://cloud-challenge-team-20250220/styles.css .
+          aws s3 cp s3://cloud-challenge-team-20250220/script.js .
+          aws s3 sync s3://cloud-challenge-team-20250220/assets/ assets/
+          
+          # Añadir identificación de la instancia
+          sed -i '/<div class="header-description">/a \            <p style="text-align: center; margin-top: 20px; color: var(--primary-color); font-size: 1.2rem;"><strong>Servidor actual:</strong> '"$(hostname)"'</p>' index.html
+          
+          # Permisos
+          chown -R apache:apache .
+          chmod -R 755 .
+          
+          # Iniciar Apache
+          systemctl start httpd
+          systemctl enable httpd
+      Tags:
+        - Key: Name
+          Value: Reto3-EC2-2
+
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      SubnetId: !Ref PublicSubnet2
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: "LabInstanceProfile"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd aws-cli
+          
+          # Preparar directorio
+          cd /var/www/html
+          rm -rf *
+          
+          # Copiar archivos del bucket de la Tarea 1
+          aws s3 cp s3://cloud-challenge-team-20250220/index.html .
+          aws s3 cp s3://cloud-challenge-team-20250220/styles.css .
+          aws s3 cp s3://cloud-challenge-team-20250220/script.js .
+          aws s3 sync s3://cloud-challenge-team-20250220/assets/ assets/
+          
+          # Añadir identificación de la instancia
+          sed -i '/<div class="header-description">/a \            <p style="text-align: center; margin-top: 20px; color: var(--primary-color); font-size: 1.2rem;"><strong>Servidor actual:</strong> '"$(hostname)"'</p>' index.html
+          
+          # Permisos
+          chown -R apache:apache .
+          chmod -R 755 .
+          
+          # Iniciar Apache
+          systemctl start httpd
+          systemctl enable httpd
+      Tags:
+        - Key: Name
+          Value: Reto3-EC2-3
+
+Outputs:
+  LoadBalancerDNS:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName 

@@ -18,6 +18,7 @@ Proyecto de despliegue de aplicaciones web en AWS que demuestra diferentes méto
 - 3 instancias EC2 en la misma región
 - Elastic Load Balancer
 - Mostrar hostname de la instancia que responde
++ URL del balanceador: http://reto3--Appli-4aD82OWhIPLT-365485212.us-west-2.elb.amazonaws.com
 
 ### 4. Monitoreo con CloudTrail
 - Seguimiento de eventos para todos los retos

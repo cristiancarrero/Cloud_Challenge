@@ -9,48 +9,69 @@ aws configure set aws_session_token TU_SESSION_TOKEN
 aws configure set region us-west-2
 aws configure set output json
 
+# 2. VARIABLES
+# -----------
+BUCKET_NAME="cloud-challenge-team-$(date +%Y%m%d)"
+IMG_BUCKET="$BUCKET_NAME-images"
+
+# 3. CREAR Y CONFIGURAR BUCKETS S3
+# -------------------------------
+# Crear buckets
+aws s3 mb s3://$BUCKET_NAME
+aws s3 mb s3://$IMG_BUCKET
+
+# Desactivar el bloqueo de acceso público para los buckets
+aws s3api put-public-access-block \
+    --bucket $BUCKET_NAME \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+aws s3api put-public-access-block \
+    --bucket $IMG_BUCKET \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+# Configurar bucket principal para web hosting
+aws s3 website s3://$BUCKET_NAME --index-document index.html
+
+# Configurar política para hacer el bucket público
+aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy '{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PublicReadGetObject",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::'$BUCKET_NAME'/*"
+        }
+    ]
+}'
+
+# Sincronizar archivos al bucket principal (sin ACL)
+aws s3 sync . s3://$BUCKET_NAME \
+    --exclude ".git/*" \
+    --exclude "comandos.sh"
+
+# Configurar política para el bucket de imágenes
+aws s3api put-bucket-policy --bucket $IMG_BUCKET --policy '{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PublicReadGetObject",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::'$IMG_BUCKET'/*"
+        }
+    ]
+}'
+
+# Sincronizar imágenes al bucket de imágenes (sin ACL)
+aws s3 sync assets/img/ s3://$IMG_BUCKET
+
 # Verificar configuración
 aws s3 ls
 
-# 2. CREAR ESTRUCTURA DEL PROYECTO
-# -------------------------------
-mkdir -p cloud_challenge/assets/img
-cd cloud_challenge
-touch index.html styles.css script.js
-
-# 3. RETO 1 - WEB ESTÁTICA EN S3
-# -----------------------------
-# Crear y configurar bucket
-BUCKET_NAME="cloud-challenge-team-$(date +%Y%m%d)"
-aws s3 mb s3://$BUCKET_NAME
-aws s3 website s3://$BUCKET_NAME --index-document index.html
-
-# Subir archivos
-aws s3 sync . s3://$BUCKET_NAME \
-    --exclude ".git/*" \
-    --exclude "comandos.sh" \
-    --acl public-read
-
-# Configurar política del bucket
-aws s3api put-bucket-policy \
-    --bucket $BUCKET_NAME \
-    --policy '{
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "PublicReadGetObject",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": "arn:aws:s3:::'$BUCKET_NAME'/*"
-            }
-        ]
-    }'
-
-# Verificar configuración
-aws s3api get-bucket-website --bucket $BUCKET_NAME
-aws s3 ls s3://$BUCKET_NAME
-aws s3api get-public-access-block --bucket $BUCKET_NAME
+# Mostrar URL del sitio web
 echo "URL del sitio: http://$BUCKET_NAME.s3-website-us-west-2.amazonaws.com"
 
 # 4. RETO 2 - URL PREFIRMADA

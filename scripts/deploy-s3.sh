@@ -1,12 +1,8 @@
 #!/bin/bash
 
 # Variables
-BUCKET_NAME="cloud-challenge-web-static"
+BUCKET_NAME="cloud-challenge-team-20250220"
 REGION="us-west-2"
-
-# Construir la aplicación
-echo "🏗️ Construyendo la aplicación..."
-npm run build
 
 # Crear el bucket si no existe
 echo "🪣 Verificando/Creando bucket S3..."
@@ -14,6 +10,12 @@ aws s3api create-bucket \
     --bucket $BUCKET_NAME \
     --region $REGION \
     --create-bucket-configuration LocationConstraint=$REGION
+
+# Desactivar el bloqueo de acceso público
+echo "🔓 Desactivando bloqueo de acceso público..."
+aws s3api put-public-access-block \
+    --bucket $BUCKET_NAME \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
 
 # Configurar el bucket para hosting web estático
 echo "🌐 Configurando bucket para web hosting..."
@@ -45,9 +47,10 @@ aws s3api put-bucket-policy \
 
 # Subir archivos
 echo "📤 Subiendo archivos al bucket..."
-aws s3 sync dist/ s3://$BUCKET_NAME \
-    --delete \
-    --cache-control "max-age=3600"
+aws s3 cp index.html s3://$BUCKET_NAME/
+aws s3 cp styles.css s3://$BUCKET_NAME/
+aws s3 cp script.js s3://$BUCKET_NAME/
+aws s3 sync assets/ s3://$BUCKET_NAME/assets/
 
 # Limpiar archivos temporales
 rm bucket-policy.json
