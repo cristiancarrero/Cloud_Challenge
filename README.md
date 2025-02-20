@@ -33,3 +33,8 @@ Proyecto de despliegue de aplicaciones web en AWS que demuestra diferentes méto
 - Shell Scripting
 
 ## Estructura del Proyecto
+
+## Características de Seguridad
+- Sitio web servido sobre HTTPS usando CloudFront
+- Certificado SSL/TLS gestionado por AWS
+- Redirección automática de HTTP a HTTPS
